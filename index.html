@@ -1,0 +1,1678 @@
+html
+<html lang="pt-BR">
+ <head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Plataforma de Cursos Educacionais</title>
+  <script src="/_sdk/data_sdk.js"></script>
+  <script src="/_sdk/element_sdk.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body {
+      box-sizing: border-box;
+    }
+    
+    .toast {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      padding: 16px 24px;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      z-index: 1000;
+      animation: slideIn 0.3s ease;
+    }
+    
+    @keyframes slideIn {
+      from {
+        transform: translateX(400px);
+        opacity: 0;
+      }
+      to {
+        transform: translateX(0);
+        opacity: 1;
+      }
+    }
+    
+    .modal-backdrop {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.5);
+      z-index: 999;
+    }
+    
+    .modal-content {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: white;
+      border-radius: 12px;
+      z-index: 1000;
+      max-width: 95%;
+      max-height: 90%;
+      overflow-y: auto;
+    }
+
+    .planilha-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+    }
+
+    .planilha-table th {
+      background-color: #3b82f6;
+      color: white;
+      padding: 12px;
+      text-align: left;
+      font-weight: bold;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+
+    .planilha-table td {
+      padding: 10px 12px;
+      border-bottom: 1px solid #e5e7eb;
+    }
+
+    .planilha-table tr:hover {
+      background-color: #f9fafb;
+    }
+
+    .planilha-table input[type="text"],
+    .planilha-table input[type="email"],
+    .planilha-table input[type="tel"],
+    .planilha-table input[type="date"] {
+      width: 100%;
+      padding: 6px 8px;
+      border: 1px solid #d1d5db;
+      border-radius: 4px;
+      font-size: 13px;
+    }
+
+    .planilha-table input[type="text"]:focus,
+    .planilha-table input[type="email"]:focus,
+    .planilha-table input[type="tel"]:focus,
+    .planilha-table input[type="date"]:focus {
+      outline: none;
+      border-color: #3b82f6;
+      box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
+    }
+
+    .status-badge {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: bold;
+      text-transform: uppercase;
+    }
+
+    .status-ativo {
+      background-color: #10b981;
+      color: white;
+    }
+
+    .status-bloqueado {
+      background-color: #ef4444;
+      color: white;
+    }
+  </style>
+  <style>@view-transition { navigation: auto; }</style>
+ </head>
+ <body class="w-full min-h-full">
+  <div id="app" class="w-full min-h-full"></div>
+  <script>
+    const defaultConfig = {
+      background_color: "#f0f4f8",
+      surface_color: "#ffffff",
+      text_color: "#1a202c",
+      primary_action: "#3b82f6",
+      secondary_action: "#64748b",
+      font_family: "Inter",
+      font_size: 16,
+      site_title: "Matemática Fácil",
+      site_subtitle: "Cursos completos de educação básica para todas as idades",
+      contact_phone: "(11) 9999-9999",
+      contact_email: "contato@matematicafacil.com",
+      chave_pix: "seuemail@pix.com"
+    };
+
+    let currentView = 'home';
+    let currentCourse = null;
+    let isAdmin = false;
+    let adminPassword = 'Demetrius@8';
+    let allRecords = [];
+    let isLoading = false;
+
+    const seriesReferencia = {
+      'infantil': ['Infantil'],
+      'fundamental1': ['1º ano', '2º ano', '3º ano', '4º ano', '5º ano'],
+      'fundamental2': ['6º ano', '7º ano', '8º ano', '9º ano'],
+      'medio': ['1º ano', '2º ano', '3º ano']
+    };
+
+    function getCursosPorNivel(nivel) {
+      return allRecords.filter(r => r.tipo === 'curso' && r.nivelEducacao === nivel);
+    }
+    
+    function getCursoData(cursoId) {
+      return allRecords.find(r => r.tipo === 'curso' && r.cursoId === cursoId);
+    }
+
+    function showToast(message, type = 'success') {
+      const toast = document.createElement('div');
+      toast.className = `toast ${type === 'success' ? 'bg-green-500' : 'bg-red-500'} text-white`;
+      toast.textContent = message;
+      document.body.appendChild(toast);
+      setTimeout(() => toast.remove(), 3000);
+    }
+
+    function showModal(content) {
+      const backdrop = document.createElement('div');
+      backdrop.className = 'modal-backdrop';
+      backdrop.onclick = () => backdrop.remove();
+      
+      const modal = document.createElement('div');
+      modal.className = 'modal-content';
+      modal.innerHTML = content;
+      
+      document.body.appendChild(backdrop);
+      document.body.appendChild(modal);
+      
+      return { backdrop, modal };
+    }
+
+    async function onConfigChange(config) {
+      const baseFont = config.font_family || defaultConfig.font_family;
+      const baseFontSize = config.font_size || defaultConfig.font_size;
+      const backgroundColor = config.background_color || defaultConfig.background_color;
+      const surfaceColor = config.surface_color || defaultConfig.surface_color;
+      const textColor = config.text_color || defaultConfig.text_color;
+      const primaryColor = config.primary_action || defaultConfig.primary_action;
+      const secondaryColor = config.secondary_action || defaultConfig.secondary_action;
+      
+      document.body.style.fontFamily = `${baseFont}, Arial, sans-serif`;
+      document.body.style.backgroundColor = backgroundColor;
+      document.body.style.color = textColor;
+      
+      const titleElements = document.querySelectorAll('[data-title]');
+      titleElements.forEach(el => {
+        el.style.fontSize = `${baseFontSize * 2}px`;
+        el.textContent = config.site_title || defaultConfig.site_title;
+      });
+      
+      const subtitleElements = document.querySelectorAll('[data-subtitle]');
+      subtitleElements.forEach(el => {
+        el.style.fontSize = `${baseFontSize * 1.2}px`;
+        el.textContent = config.site_subtitle || defaultConfig.site_subtitle;
+      });
+      
+      const phoneElements = document.querySelectorAll('[data-phone]');
+      phoneElements.forEach(el => {
+        el.textContent = config.contact_phone || defaultConfig.contact_phone;
+      });
+      
+      const emailElements = document.querySelectorAll('[data-email]');
+      emailElements.forEach(el => {
+        el.textContent = config.contact_email || defaultConfig.contact_email;
+      });
+      
+      const surfaces = document.querySelectorAll('[data-surface]');
+      surfaces.forEach(el => el.style.backgroundColor = surfaceColor);
+      
+      const primaryButtons = document.querySelectorAll('[data-primary-btn]');
+      primaryButtons.forEach(el => {
+        el.style.backgroundColor = primaryColor;
+        el.style.fontSize = `${baseFontSize}px`;
+      });
+      
+      const secondaryButtons = document.querySelectorAll('[data-secondary-btn]');
+      secondaryButtons.forEach(el => {
+        el.style.backgroundColor = secondaryColor;
+        el.style.fontSize = `${baseFontSize * 0.9}px`;
+      });
+      
+      const textElements = document.querySelectorAll('[data-text]');
+      textElements.forEach(el => {
+        el.style.fontSize = `${baseFontSize}px`;
+        el.style.color = textColor;
+      });
+      
+      const headings = document.querySelectorAll('[data-heading]');
+      headings.forEach(el => el.style.fontSize = `${baseFontSize * 1.5}px`);
+    }
+
+    function renderHome() {
+      const config = window.elementSdk.config;
+      return `
+        <div class="w-full min-h-full" style="background-color: ${config.background_color || defaultConfig.background_color};">
+          <header class="w-full py-8 px-6" data-surface style="background-color: ${config.surface_color || defaultConfig.surface_color}; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+            <div class="max-w-6xl mx-auto flex justify-between items-center">
+              <div>
+                <h1 data-title style="font-size: ${(config.font_size || defaultConfig.font_size) * 2}px; font-weight: bold; margin: 0;">${config.site_title || defaultConfig.site_title}</h1>
+                <p data-subtitle style="font-size: ${(config.font_size || defaultConfig.font_size) * 1.2}px; margin-top: 8px;">${config.site_subtitle || defaultConfig.site_subtitle}</p>
+              </div>
+              ${isAdmin ? `
+                <button onclick="toggleAdminMode()" data-secondary-btn class="px-4 py-2 rounded-lg text-white transition-all hover:opacity-80" style="background-color: ${config.secondary_action || defaultConfig.secondary_action}; font-size: ${(config.font_size || defaultConfig.font_size) * 0.9}px;">
+                  👤 Sair Admin
+                </button>
+              ` : ''}
+            </div>
+          </header>
+
+          <main class="w-full max-w-6xl mx-auto px-6 py-12">
+            <section class="mb-8 p-6 rounded-xl" data-surface style="background-color: ${config.surface_color || defaultConfig.surface_color}; box-shadow: 0 4px 12px rgba(0,0,0,0.1);">
+              <h3 data-heading style="font-size: ${(config.font_size || defaultConfig.font_size) * 1.2}px; font-weight: bold; margin-bottom: 8px;">🎓 Área do Aluno</h3>
+              <p data-text style="font-size: ${(config.font_size || defaultConfig.font_size) * 0.9}px; margin-bottom: 12px;">Já é aluno? Acesse seu curso aqui:</p>
+              <button onclick="acessarCurso()" data-primary-btn class="px-5 py-2 rounded-lg text-white font-semibold transition-all hover:opacity-80" style="background-color: ${config.primary_action || defaultConfig.primary_action}; font-size: ${(config.font_size || defaultConfig.font_size) * 0.95}px;">
+                Acessar Meu Curso
+              </button>
+            </section>
+
+            <section class="text-center mb-10">
+              <h2 data-heading style="font-size: ${(config.font_size || defaultConfig.font_size) * 1.3}px; font-weight: bold; margin-bottom: 10px;">Escolha o Nível de Ensino</h2>
+              <p data-text style="font-size: ${(config.font_size || defaultConfig.font_size) * 0.9}px;">Cursos completos para todas as fases da educação básica</p>
+            </section>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+              ${renderNivelCard('infantil', '🎨 Educação Infantil', 'Para crianças de 0 a 5 anos', config)}
+              ${renderNivelCard('fundamental1', '📚 Ensino Fundamental I', '1º ao 5º ano', config)}
+              ${renderNivelCard('fundamental2', '📖 Ensino Fundamental II', '6º ao 9º ano', config)}
+              ${renderNivelCard('medio', '🎓 Ensino Médio', 'Preparação para vestibular e ENEM', config)}
+            </div>
+
+            <section class="mt-8 p-6 rounded-xl" data-surface style="background-color: ${config.surface_color || defaultConfig.surface_color};">
+              <h3 data-heading style="font-size: ${(config.font_size || defaultConfig.font_size) * 1.5}px; font-weight: bold; margin-bottom: 16px;">Contato</h3>
+              <p data-text style="font-size: ${config.font_size || defaultConfig.font_size}px;">📞 <span data-phone>${config.contact_phone || defaultConfig.contact_phone}</span></p>
+              <p data-text style="font-size: ${config.font_size || defaultConfig.font_size}px; margin-top: 8px;">📧 <span data-email>${config.contact_email || defaultConfig.contact_email}</span></p>
+            </section>
+          </main>
+        </div>
+      `;
+    }
+
+    function renderNivelCard(nivel, titulo, descricao, config) {
+      return `
+        <div class="p-8 rounded-xl shadow-lg transition-all hover:shadow-xl cursor-pointer" data-surface onclick="viewNivel('${nivel}')" style="background-color: ${config.surface_color || defaultConfig.surface_color};">
+          <h3 data-heading style="font-size: ${(config.font_size || defaultConfig.font_size) * 1.5}px; font-weight: bold; margin-bottom: 12px;">${titulo}</h3>
+          <p data-text style="font-size: ${config.font_size || defaultConfig.font_size}px; margin-bottom: 16px;">${descricao}</p>
+          <button data-primary-btn class="px-6 py-3 rounded-lg text-white font-semibold transition-all hover:opacity-80" style="background-color: ${config.primary_action || defaultConfig.primary_action}; font-size: ${config.font_size || defaultConfig.font_size}px;">
+            Ver Cursos
+          </button>
+        </div>
+      `;
+    }
+
+    function renderNivel(nivel) {
+      const config = window.elementSdk.config;
+      const titulos = {
+        'infantil': '🎨 Educação Infantil',
+        'fundamental1': '📚 Ensino Fundamental I',
+        'fundamental2': '📖 Ensino Fundamental II',
+        'medio': '🎓 Ensino Médio'
+      };
+
+      const cursos = getCursosPorNivel(nivel);
+      const series = seriesReferencia[nivel] || [];
+
+      return `
+        <div class="w-full min-h-full" style="background-color: ${config.background_color || defaultConfig.background_color};">
+          <header class="w-full py-6 px-6" data-surface style="background-color: ${config.surface_color || defaultConfig.surface_color}; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+            <div class="max-w-6xl mx-auto flex items-center gap-4">
+              <button onclick="goHome()" data-secondary-btn class="px-4 py-2 rounded-lg text-white transition-all hover:opacity-80" style="background-color: ${config.secondary_action || defaultConfig.secondary_action}; font-size: ${(config.font_size || defaultConfig.font_size) * 0.9}px;">
+                ← Voltar
+              </button>
+              <h1 data-heading style="font-size: ${(config.font_size || defaultConfig.font_size) * 1.5}px; font-weight: bold;">${titulos[nivel]}</h1>
+            </div>
+          </header>
+
+          <main class="w-full max-w-6xl mx-auto px-6 py-12">
+            ${isAdmin ? `
+              <div class="mb-8 p-6 rounded-xl" data-surface style="background-color: ${config.surface_color || defaultConfig.surface_color}; border: 2px solid ${config.primary_action || defaultConfig.primary_action};">
+                <h2 data-heading style="font-size: ${(config.font_size || defaultConfig.font_size) * 1.5}px; font-weight: bold; margin-bottom: 16px;">🔧 Painel Administrativo</h2>
+                <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+                  <button onclick="viewPlanilhaAlunos()" class="px-4 py-2 rounded-lg text-white font-semibold transition-all hover:opacity-80" style="background-color: #3b82f6; font-size: ${(config.font_size || defaultConfig.font_size) * 0.9}px;">
+                    📋 Planilha de Alunos
+                  </button>
+                  <button onclick="viewLeadsDemo()" class="px-4 py-2 rounded-lg text-white font-semibold transition-all hover:opacity-80" style="background-color: #8b5cf6; font-size: ${(config.font_size || defaultConfig.font_size) * 0.9}px;">
+                    🎁 Leads Demo
+                  </button>
+                  <button onclick="editarContato()" class="px-4 py-2 rounded-lg text-white font-semibold transition-all hover:opacity-80" style="background-color: #f59e0b; font-size: ${(config.font_size || defaultConfig.font_size) * 0.9}px;">
+                    📞 Editar Contato
+                  </button>
+                  <button onclick="addNovoCurso('${nivel}')" class="px-4 py-2 rounded-lg text-white font-semibold transition-all hover:opacity-80" style="background-color: #10b981; font-size: ${(config.font_size || defaultConfig.font_size) * 0.9}px;">
+                    ➕ Adicionar Curso
+                  </button>
+                  <button onclick="criarCursosDemo()" class="px-4 py-2 rounded-lg text-white font-semibold transition-all hover:opacity-80" style="background-color: #10b981; font-size: ${(config.font_size || defaultConfig.font_size) * 0.9}px;">
+                    🎨 Criar Cursos Demo
+                  </button>
+                </div>
+              </div>
+            ` : ''}
+
+            ${series.map(serie => {
+              const cursosDaSerie = cursos.filter(c => c.serie === serie);
+              return `
+                <div class="mb-8">
+                  <h2 data-heading style="font-size: ${(config.font_size || defaultConfig.font_size) * 1.3}px; font-weight: bold; margin-bottom: 16px;">${serie}</h2>
+                  
+                  ${cursosDaSerie.length === 0 ? `
+                    <p data-text style="font-size: ${config.font_size || defaultConfig.font_size}px; color: ${config.secondary_action || defaultConfig.secondary_action};">
+                      Nenhum curso cadastrado
+                    </p>
+                  ` : ''}
+                  
+                  <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    ${cursosDaSerie.map(curso => `
+                      <div class="p-6 rounded-xl shadow-lg" data-surface style="background-color: ${config.surface_color || defaultConfig.surface_color};">
+                        <h3 data-heading style="font-size: ${(config.font_size || defaultConfig.font_size) * 1.2}px; font-weight: bold; margin-bottom: 8px;">${curso.titulo}</h3>
+                        <p data-text style="font-size: ${(config.font_size || defaultConfig.font_size) * 0.9}px; margin-bottom: 12px;">${curso.descricao || 'Sem descrição'}</p>
+                        
+                        ${isAdmin ? `
+                          <button onclick="editarCurso('${curso.__backendId}')" class="w-full py-2 rounded-lg text-white font-semibold transition-all hover:opacity-80" style="background-color: #f59e0b; font-size: ${(config.font_size || defaultConfig.font_size) * 0.9}px;">
+                            ✏️ Editar Curso
+                          </button>
+                        ` : curso.linkCurso ? `
+                          ${curso.cursoId.startsWith('demo_') ? `
+                            <button onclick="acessarCursoDemo('${curso.cursoId}')" data-primary-btn class="w-full py-2 rounded-lg text-white font-semibold transition-all hover:opacity-80" style="background-color: #10b981; font-size: ${(config.font_size || defaultConfig.font_size) * 0.9}px;">
+                              🎁 Acessar Demo Grátis
+                            </button>
+                          ` : `
+                            <button onclick="enrollCurso('${curso.cursoId}')" data-primary-btn class="w-full py-2 rounded-lg text-white font-semibold transition-all hover:opacity-80" style="background-color: ${config.primary_action || defaultConfig.primary_action}; font-size: ${(config.font_size || defaultConfig.font_size) * 0.9}px;">
+                              Matricular-se
+                            </button>
+                          `}
+                        ` : ''}
+                      </div>
+                    `).join('')}
+                  </div>
+                </div>
+              `;
+            }).join('')}
+          </main>
+        </div>
+      `;
+    }
+
+    async function toggleAdminMode() {
+      if (isAdmin) {
+        isAdmin = false;
+        showToast('Saiu do modo administrador');
+        render();
+        return;
+      }
+
+      const config = window.elementSdk.config;
+      const modalContent = `
+        <div class="p-8" style="width: 400px; max-width: 90vw;">
+          <h2 data-heading style="font-size: ${(config.font_size || defaultConfig.font_size) * 1.5}px; font-weight: bold; margin-bottom: 16px;">🔐 Acesso Administrativo</h2>
+          <p data-text style="font-size: ${config.font_size || defaultConfig.font_size}px; margin-bottom: 24px;">Digite a senha para acessar o painel</p>
+          
+          <form id="adminLoginForm" onsubmit="handleAdminLogin(event)">
+            <div class="mb-6">
+              <label data-text style="font-size: ${config.font_size || defaultConfig.font_size}px; display: block; margin-bottom: 8px; font-weight: 600;">Senha</label>
+              <input type="password" id="adminPasswordInput" name="senha" required class="w-full px-4 py-3 rounded-lg border-2" style="font-size: ${config.font_size || defaultConfig.font_size}px;" placeholder="Digite a senha">
+            </div>
+            
+            <div class="flex gap-3">
+              <button type="button" onclick="closeAllModals()" data-secondary-btn class="flex-1 py-3 rounded-lg text-white font-semibold" style="background-color: ${config.secondary_action || defaultConfig.secondary_action};">
+                Cancelar
+              </button>
+              <button type="submit" data-primary-btn class="flex-1 py-3 rounded-lg text-white font-semibold" style="background-color: ${config.primary_action || defaultConfig.primary_action};">
+                Entrar
+              </button>
+            </div>
+          </form>
+        </div>
+      `;
+      
+      showModal(modalContent);
+      setTimeout(() => document.getElementById('adminPasswordInput')?.focus(), 100);
+    }
+
+    function handleAdminLogin(event) {
+      event.preventDefault();
+      const formData = new FormData(event.target);
+      const senha = formData.get('senha');
+      
+      if (senha === adminPassword) {
+        isAdmin = true;
+        showToast('✅ Acesso administrativo concedido!');
+        closeAllModals();
+        render();
+      } else {
+        showToast('❌ Senha incorreta', 'error');
+        document.getElementById('adminPasswordInput').value = '';
+        document.getElementById('adminPasswordInput').focus();
+      }
+    }
+
+    function viewNivel(nivel) {
+      currentView = nivel;
+      render();
+    }
+
+    function goHome() {
+      currentView = 'home';
+      render();
+    }
+
+    function addNovoCurso(nivel) {
+      const config = window.elementSdk.config;
+      const series = seriesReferencia[nivel] || [];
+      
+      const modalContent = `
+        <div class="p-8" style="width: 700px; max-width: 90vw; max-height: 90vh; overflow-y: auto;">
+          <h2 data-heading style="font-size: ${(config.font_size || defaultConfig.font_size) * 1.5}px; font-weight: bold; margin-bottom: 16px;">➕ Adicionar Novo Curso</h2>
+          
+          <form id="addCursoForm" onsubmit="handleAddCurso(event, '${nivel}')">
+            <div class="mb-4">
+              <label data-text style="font-size: ${config.font_size || defaultConfig.font_size}px; display: block; margin-bottom: 8px; font-weight: 600;">Série</label>
+              <select name="serie" required class="w-full px-4 py-3 rounded-lg border-2" style="font-size: ${config.font_size || defaultConfig.font_size}px;">
+                <option value="">Selecione a série</option>
+                ${series.map(s => `<option value="${s}">${s}</option>`).join('')}
+              </select>
+            </div>
+            
+            <div class="mb-4">
+              <label data-text style="font-size: ${config.font_size || defaultConfig.font_size}px; display: block; margin-bottom: 8px; font-weight: 600;">Título do Curso</label>
+              <input type="text" name="titulo" required class="w-full px-4 py-3 rounded-lg border-2" style="font-size: ${config.font_size || defaultConfig.font_size}px;" placeholder="Ex: Matemática Básica">
+            </div>
+            
+            <div class="mb-4">
+              <label data-text style="font-size: ${config.font_size || defaultConfig.font_size}px; display: block; margin-bottom: 8px; font-weight: 600;">Descrição</label>
+              <textarea name="descricao" rows="3" class="w-full px-4 py-3 rounded-lg border-2" style="font-size: ${config.font_size || defaultConfig.font_size}px;" placeholder="Descrição do curso"></textarea>
+            </div>
+            
+            <div class="grid grid-cols-2 gap-4 mb-4">
+              <div>
+                <label data-text style="font-size: ${config.font_size || defaultConfig.font_size}px; display: block; margin-bottom: 8px; font-weight: 600;">Valor Mensal (R$)</label>
+                <input type="number" step="0.01" name="valorMensal" class="w-full px-4 py-3 rounded-lg border-2" style="font-size: ${config.font_size || defaultConfig.font_size}px;" placeholder="0.00">
+              </div>
+              <div>
+                <label data-text style="font-size: ${config.font_size || defaultConfig.font_size}px; display: block; margin-bottom: 8px; font-weight: 600;">Valor Bimestral (R$)</label>
+                <input type="number" step="0.01" name="valorBimestral" class="w-full px-4 py-3 rounded-lg border-2" style="font-size: ${config.font_size || defaultConfig.font_size}px;" placeholder="0.00">
+              </div>
+            </div>
+            
+            <div class="grid grid-cols-2 gap-4 mb-4">
+              <div>
+                <label data-text style="font-size: ${config.font_size || defaultConfig.font_size}px; display: block; margin-bottom: 8px; font-weight: 600;">Valor Semestral (R$)</label>
+                <input type="number" step="0.01" name="valorSemestral" class="w-full px-4 py-3 rounded-lg border-2" style="font-size: ${config.font_size || defaultConfig.font_size}px;" placeholder="0.00">
+              </div>
+              <div>
+                <label data-text style="font-size: ${config.font_size || defaultConfig.font_size}px; display: block; margin-bottom: 8px; font-weight: 600;">Valor Anual (R$)</label>
+                <input type="number" step="0.01" name="valorAnual" class="w-full px-4 py-3 rounded-lg border-2" style="font-size: ${config.font_size || defaultConfig.font_size}px;" placeholder="0.00">
+              </div>
+            </div>
+            
+            <div class="mb-4">
+              <label data-text style="font-size: ${config.font_size || defaultConfig.font_size}px; display: block; margin-bottom: 8px; font-weight: 600;">Chave PIX</label>
+              <input type="text" name="chavePix" class="w-full px-4 py-3 rounded-lg border-2" style="font-size: ${config.font_size || defaultConfig.font_size}px;" placeholder="exemplo@pix.com">
+            </div>
+            
+            <div class="mb-6">
+              <label data-text style="font-size: ${config.font_size || defaultConfig.font_size}px; display: block; margin-bottom: 8px; font-weight: 600;">Link do Curso</label>
+              <input type="url" name="linkCurso" required class="w-full px-4 py-3 rounded-lg border-2" style="font-size: ${config.font_size || defaultConfig.font_size}px;" placeholder="https://exemplo.com/curso">
+            </div>
+            
+            <div class="flex gap-3">
+              <button type="button" onclick="closeAllModals()" data-secondary-btn class="flex-1 py-3 rounded-lg text-white font-semibold" style="background-color: ${config.secondary_action || defaultConfig.secondary_action};">
+                Cancelar
+              </button>
+              <button type="submit" data-primary-btn class="flex-1 py-3 rounded-lg text-white font-semibold" style="background-color: ${config.primary_action || defaultConfig.primary_action};">
+                Criar Curso
+              </button>
+            </div>
+          </form>
+        </div>
+      `;
+      
+      showModal(modalContent);
+    }
+
+    async function handleAddCurso(event, nivel) {
+      event.preventDefault();
+      
+      if (isLoading) return;
+      isLoading = true;
+      
+      const formData = new FormData(event.target);
+      const cursoId = 'curso_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+      
+      const result = await window.dataSdk.create({
+        tipo: 'curso',
+        cursoId: cursoId,
+        nivelEducacao: nivel,
+        serie: formData.get('serie'),
+        titulo: formData.get('titulo'),
+        descricao: formData.get('descricao') || '',
+        valorMensal: formData.get('valorMensal') || '0',
+        valorBimestral: formData.get('valorBimestral') || '0',
+        valorSemestral: formData.get('valorSemestral') || '0',
+        valorAnual: formData.get('valorAnual') || '0',
+        chavePix: formData.get('chavePix') || '',
+        linkCurso: formData.get('linkCurso'),
+        dataCadastro: new Date().toISOString(),
+        dataAtualizacao: new Date().toISOString(),
+        nome: '',
+        email: '',
+        telefone: '',
+        codigoPix: '',
+        senhaAcesso: '',
+        pagamentoVerificado: false,
+        plano: '',
+        valorPago: '',
+        dataFinalCurso: '',
+        acessoBloqueado: false
+      });
+      
+      if (result.isOk) {
+        showToast('✅ Curso criado com sucesso!');
+        closeAllModals();
+      } else {
+        showToast('❌ Erro ao criar curso', 'error');
+      }
+      
+      isLoading = false;
+    }
+
+    function editarCurso(backendId) {
+      const config = window.elementSdk.config;
+      const curso = allRecords.find(r => r.__backendId === backendId);
+      
+      if (!curso) {
+        showToast('❌ Curso não encontrado', 'error');
+        return;
+      }
+      
+      const series = seriesReferencia[curso.nivelEducacao] || [];
+      
+      const modalContent = `
+        <div class="p-8" style="width: 700px; max-width: 90vw; max-height: 90vh; overflow-y: auto;">
+          <h2 data-heading style="font-size: ${(config.font_size || defaultConfig.font_size) * 1.5}px; font-weight: bold; margin-bottom: 16px;">✏️ Editar Curso</h2>
+          
+          <form id="editCursoForm" onsubmit="handleEditCurso(event, '${backendId}')">
+            <div class="mb-4">
+              <label data-text style="font-size: ${config.font_size || defaultConfig.font_size}px; display: block; margin-bottom: 8px; font-weight: 600;">Série</label>
+              <select name="serie" required class="w-full px-4 py-3 rounded-lg border-2" style="font-size: ${config.font_size || defaultConfig.font_size}px;">
+                <option value="">Selecione a série</option>
+                ${series.map(s => `<option value="${s}" ${s === curso.serie ? 'selected' : ''}>${s}</option>`).join('')}
+              </select>
+            </div>
+            
+            <div class="mb-4">
+              <label data-text style="font-size: ${config.font_size || defaultConfig.font_size}px; display: block; margin-bottom: 8px; font-weight: 600;">Título do Curso</label>
+              <input type="text" name="titulo" value="${curso.titulo}" required class="w-full px-4 py-3 rounded-lg border-2" style="font-size: ${config.font_size || defaultConfig.font_size}px;" placeholder="Ex: Matemática Básica">
+            </div>
+            
+            <div class="mb-4">
+              <label data-text style="font-size: ${config.font_size || defaultConfig.font_size}px; display: block; margin-bottom: 8px; font-weight: 600;">Descrição</label>
+              <textarea name="descricao" rows="3" class="w-full px-4 py-3 rounded-lg border-2" style="font-size: ${config.font_size || defaultConfig.font_size}px;" placeholder="Descrição do curso">${curso.descricao || ''}</textarea>
+            </div>
+            
+            <div class="grid grid-cols-2 gap-4 mb-4">
+              <div>
+                <label data-text style="font-size: ${config.font_size || defaultConfig.font_size}px; display: block; margin-bottom: 8px; font-weight: 600;">Valor Mensal (R$)</label>
+                <input type="number" step="0.01" name="valorMensal" value="${curso.valorMensal || '0'}" class="w-full px-4 py-3 rounded-lg border-2" style="font-size: ${config.font_size || defaultConfig.font_size}px;" placeholder="0.00">
+              </div>
+              <div>
+                <label data-text style="font-size: ${config.font_size || defaultConfig.font_size}px; display: block; margin-bottom: 8px; font-weight: 600;">Valor Bimestral (R$)</label>
+                <input type="number" step="0.01" name="valorBimestral" value="${curso.valorBimestral || '0'}" class="w-full px-4 py-3 rounded-lg border-2" style="font-size: ${config.font_size || defaultConfig.font_size}px;" placeholder="0.00">
+              </div>
+            </div>
+            
+            <div class="grid grid-cols-2 gap-4 mb-4">
+              <div>
+                <label data-text style="font-size: ${config.font_size || defaultConfig.font_size}px; display: block; margin-bottom: 8px; font-weight: 600;">Valor Semestral (R$)</label>
+                <input type="number" step="0.01" name="valorSemestral" value="${curso.valorSemestral || '0'}" class="w-full px-4 py-3 rounded-lg border-2" style="font-size: ${config.font_size || defaultConfig.font_size}px;" placeholder="0.00">
+              </div>
+              <div>
+                <label data-text style="font-size: ${config.font_size || defaultConfig.font_size}px; display: block; margin-bottom: 8px; font-weight: 600;">Valor Anual (R$)</label>
+                <input type="number" step="0.01" name="valorAnual" value="${curso.valorAnual || '0'}" class="w-full px-4 py-3 rounded-lg border-2" style="font-size: ${config.font_size || defaultConfig.font_size}px;" placeholder="0.00">
+              </div>
+            </div>
+            
+            <div class="mb-4">
+              <label data-text style="font-size: ${config.font_size || defaultConfig.font_size}px; display: block; margin-bottom: 8px; font-weight: 600;">Chave PIX</label>
+              <input type="text" name="chavePix" value="${curso.chavePix || ''}" class="w-full px-4 py-3 rounded-lg border-2" style="font-size: ${config.font_size || defaultConfig.font_size}px;" placeholder="exemplo@pix.com">
+            </div>
+            
+            <div class="mb-6">
+              <label data-text style="font-size: ${config.font_size || defaultConfig.font_size}px; display: block; margin-bottom: 8px; font-weight: 600;">Link do Curso</label>
+              <input type="url" name="linkCurso" value="${curso.linkCurso || ''}" required class="w-full px-4 py-3 rounded-lg border-2" style="font-size: ${config.font_size || defaultConfig.font_size}px;" placeholder="https://exemplo.com/curso">
+            </div>
+            
+            <div class="flex gap-3">
+              <button type="button" onclick="closeAllModals()" data-secondary-btn class="flex-1 py-3 rounded-lg text-white font-semibold" style="background-color: ${config.secondary_action || defaultConfig.secondary_action};">
+                Cancelar
+              </button>
+              <button type="submit" data-primary-btn class="flex-1 py-3 rounded-lg text-white font-semibold" style="background-color: ${config.primary_action || defaultConfig.primary_action};">
+                Salvar Alterações
+              </button>
+            </div>
+          </form>
+        </div>
+      `;
+      
+      showModal(modalContent);
+    }
+
+    async function handleEditCurso(event, backendId) {
+      event.preventDefault();
+      
+      if (isLoading) return;
+      isLoading = true;
+      
+      const formData = new FormData(event.target);
+      const curso = allRecords.find(r => r.__backendId === backendId);
+      
+      if (!curso) {
+        showToast('❌ Curso não encontrado', 'error');
+        isLoading = false;
+        return;
+      }
+      
+      curso.serie = formData.get('serie');
+      curso.titulo = formData.get('titulo');
+      curso.descricao = formData.get('descricao') || '';
+      curso.valorMensal = formData.get('valorMensal') || '0';
+      curso.valorBimestral = formData.get('valorBimestral') || '0';
+      curso.valorSemestral = formData.get('valorSemestral') || '0';
+      curso.valorAnual = formData.get('valorAnual') || '0';
+      curso.chavePix = formData.get('chavePix') || '';
+      curso.linkCurso = formData.get('linkCurso');
+      curso.dataAtualizacao = new Date().toISOString();
+      
+      const result = await window.dataSdk.update(curso);
+      
+      if (result.isOk) {
+        showToast('✅ Curso atualizado com sucesso!');
+        closeAllModals();
+      } else {
+        showToast('❌ Erro ao atualizar curso', 'error');
+      }
+      
+      isLoading = false;
+    }
+
+    function enrollCurso(cursoId) {
+      currentCourse = cursoId;
+      const config = window.elementSdk.config;
+      const curso = getCursoData(cursoId);
+      
+      const modalContent = `
+        <div class="p-8" style="width: 600px; max-width: 90vw;">
+          <h2 data-heading style="font-size: ${(config.font_size || defaultConfig.font_size) * 1.5}px; font-weight: bold; margin-bottom: 16px;">Matrícula - ${curso.titulo}</h2>
+          
+          <form id="enrollForm" onsubmit="handleEnroll(event, '${cursoId}')">
+            <div class="mb-4">
+              <label data-text style="font-size: ${config.font_size || defaultConfig.font_size}px; display: block; margin-bottom: 8px; font-weight: 600;">Nome Completo</label>
+              <input type="text" name="nome" required class="w-full px-4 py-3 rounded-lg border-2" style="font-size: ${config.font_size || defaultConfig.font_size}px;">
+            </div>
+            
+            <div class="mb-4">
+              <label data-text style="font-size: ${config.font_size || defaultConfig.font_size}px; display: block; margin-bottom: 8px; font-weight: 600;">E-mail</label>
+              <input type="email" name="email" required class="w-full px-4 py-3 rounded-lg border-2" style="font-size: ${config.font_size || defaultConfig.font_size}px;">
+            </div>
+            
+            <div class="mb-4">
+              <label data-text style="font-size: ${config.font_size || defaultConfig.font_size}px; display: block; margin-bottom: 8px; font-weight: 600;">Telefone</label>
+              <input type="tel" name="telefone" required class="w-full px-4 py-3 rounded-lg border-2" style="font-size: ${config.font_size || defaultConfig.font_size}px;">
+            </div>
+            
+            <div class="mb-4">
+              <label data-text style="font-size: ${config.font_size || defaultConfig.font_size}px; display: block; margin-bottom: 8px; font-weight: 600;">Plano de Pagamento</label>
+              <select name="plano" id="selectPlano" onchange="atualizarValorPlano('${cursoId}')" required class="w-full px-4 py-3 rounded-lg border-2" style="font-size: ${config.font_size || defaultConfig.font_size}px;">
+                <option value="">Selecione o plano</option>
+                ${curso.valorMensal && parseFloat(curso.valorMensal) > 0 ? `<option value="mensal">Mensal - R$ ${parseFloat(curso.valorMensal).toFixed(2)}</option>` : ''}
+                ${curso.valorBimestral && parseFloat(curso.valorBimestral) > 0 ? `<option value="bimestral">Bimestral - R$ ${parseFloat(curso.valorBimestral).toFixed(2)}</option>` : ''}
+                ${curso.valorSemestral && parseFloat(curso.valorSemestral) > 0 ? `<option value="semestral">Semestral - R$ ${parseFloat(curso.valorSemestral).toFixed(2)}</option>` : ''}
+                ${curso.valorAnual && parseFloat(curso.valorAnual) > 0 ? `<option value="anual">Anual - R$ ${parseFloat(curso.valorAnual).toFixed(2)}</option>` : ''}
+              </select>
+            </div>
+            
+            <div class="mb-6 p-4 rounded-lg" style="background-color: ${config.background_color || defaultConfig.background_color}; border: 2px solid ${config.primary_action || defaultConfig.primary_action};">
+              <h3 data-heading style="font-size: ${(config.font_size || defaultConfig.font_size) * 1.2}px; font-weight: bold; margin-bottom: 12px;">💳 Pagamento via PIX</h3>
+              <p data-text style="font-size: ${(config.font_size || defaultConfig.font_size) * 0.9}px; margin-bottom: 8px;">
+                <strong>Chave PIX:</strong> <span style="color: ${config.primary_action || defaultConfig.primary_action}; font-weight: bold;">${curso.chavePix || config.chave_pix || defaultConfig.chave_pix}</span>
+              </p>
+              <p data-text id="valorPagar" style="font-size: ${(config.font_size || defaultConfig.font_size) * 0.9}px; margin-bottom: 8px; display: none;">
+                <strong>Valor a pagar:</strong> <span id="valorDisplay" style="color: ${config.primary_action || defaultConfig.primary_action}; font-weight: bold; font-size: ${(config.font_size || defaultConfig.font_size) * 1.2}px;">R$ 0,00</span>
+              </p>
+              <p data-text style="font-size: ${(config.font_size || defaultConfig.font_size) * 0.85}px; margin-top: 12px; opacity: 0.8;">
+                ⚠️ Após realizar o pagamento, você receberá um <strong>e-mail com sua senha provisória</strong>. O acesso será liberado assim que confirmarmos o pagamento na planilha de alunos.
+              </p>
+            </div>
+            
+            <div class="flex gap-3">
+              <button type="button" onclick="closeAllModals()" data-secondary-btn class="flex-1 py-3 rounded-lg text-white font-semibold" style="background-color: ${config.secondary_action || defaultConfig.secondary_action};">
+                Cancelar
+              </button>
+              <button type="submit" data-primary-btn class="flex-1 py-3 rounded-lg text-white font-semibold" style="background-color: ${config.primary_action || defaultConfig.primary_action};">
+                Finalizar Matrícula
+              </button>
+            </div>
+          </form>
+        </div>
+      `;
+      
+      showModal(modalContent);
+    }
+
+    function atualizarValorPlano(cursoId) {
+      const selectPlano = document.getElementById('selectPlano');
+      const planoSelecionado = selectPlano.value;
+      const valorDisplay = document.getElementById('valorDisplay');
+      const valorPagar = document.getElementById('valorPagar');
+      
+      if (!planoSelecionado) {
+        valorPagar.style.display = 'none';
+        return;
+      }
+      
+      const curso = getCursoData(cursoId);
+      let valor = 0;
+      
+      switch(planoSelecionado) {
+        case 'mensal':
+          valor = parseFloat(curso.valorMensal);
+          break;
+        case 'bimestral':
+          valor = parseFloat(curso.valorBimestral);
+          break;
+        case 'semestral':
+          valor = parseFloat(curso.valorSemestral);
+          break;
+        case 'anual':
+          valor = parseFloat(curso.valorAnual);
+          break;
+      }
+      
+      valorDisplay.textContent = `R$ ${valor.toFixed(2)}`;
+      valorPagar.style.display = 'block';
+    }
+
+    async function handleEnroll(event, cursoId) {
+      event.preventDefault();
+      
+      if (isLoading) return;
+      isLoading = true;
+      
+      const formData = new FormData(event.target);
+      const planoSelecionado = formData.get('plano');
+      
+      if (!planoSelecionado) {
+        showToast('❌ Selecione um plano de pagamento', 'error');
+        isLoading = false;
+        return;
+      }
+      
+      const senhaProvisoria = Math.random().toString(36).substr(2, 8).toUpperCase();
+      const curso = getCursoData(cursoId);
+      
+      let valorPago = 0;
+      let dataFinal = new Date();
+      
+      switch(planoSelecionado) {
+        case 'mensal':
+          valorPago = parseFloat(curso.valorMensal);
+          dataFinal.setMonth(dataFinal.getMonth() + 1);
+          break;
+        case 'bimestral':
+          valorPago = parseFloat(curso.valorBimestral);
+          dataFinal.setMonth(dataFinal.getMonth() + 2);
+          break;
+        case 'semestral':
+          valorPago = parseFloat(curso.valorSemestral);
+          dataFinal.setMonth(dataFinal.getMonth() + 6);
+          break;
+        case 'anual':
+          valorPago = parseFloat(curso.valorAnual);
+          dataFinal.setFullYear(dataFinal.getFullYear() + 1);
+          break;
+      }
+      
+      const result = await window.dataSdk.create({
+        tipo: 'aluno',
+        nome: formData.get('nome'),
+        email: formData.get('email'),
+        telefone: formData.get('telefone'),
+        nivelEducacao: curso.nivelEducacao,
+        cursoId: cursoId,
+        plano: planoSelecionado,
+        valorPago: valorPago.toFixed(2),
+        codigoPix: '',
+        senhaAcesso: senhaProvisoria,
+        pagamentoVerificado: false,
+        dataFinalCurso: dataFinal.toISOString(),
+        acessoBloqueado: true,
+        dataCadastro: new Date().toISOString(),
+        dataAtualizacao: new Date().toISOString(),
+        linkCurso: '',
+        chavePix: '',
+        valorMensal: '',
+        valorBimestral: '',
+        valorSemestral: '',
+        valorAnual: '',
+        titulo: '',
+        descricao: '',
+        serie: ''
+      });
+      
+      if (result.isOk) {
+        closeAllModals();
+        
+        const config = window.elementSdk.config;
+        const successContent = `
+          <div class="p-8 text-center" style="width: 600px; max-width: 90vw;">
+            <div style="font-size: 64px; margin-bottom: 16px;">📧</div>
+            <h2 data-heading style="font-size: ${(config.font_size || defaultConfig.font_size) * 1.5}px; font-weight: bold; margin-bottom: 16px;">Matrícula Registrada!</h2>
+            
+            <div class="p-4 rounded-lg mb-6" style="background-color: ${config.background_color || defaultConfig.background_color}; border: 2px solid ${config.primary_action || defaultConfig.primary_action};">
+              <p data-text style="font-size: ${(config.font_size || defaultConfig.font_size) * 1.1}px; margin-bottom: 16px; font-weight: bold;">
+                📧 Senha Provisória Enviada por E-mail
+              </p>
+              <p data-text style="font-size: ${config.font_size || defaultConfig.font_size}px; margin-bottom: 12px;">
+                E-mail: <strong>${formData.get('email')}</strong>
+              </p>
+              <p data-text style="font-size: ${config.font_size || defaultConfig.font_size}px; margin-bottom: 12px;">
+                Senha Provisória: <strong style="font-size: ${(config.font_size || defaultConfig.font_size) * 1.5}px; color: ${config.primary_action || defaultConfig.primary_action};">${senhaProvisoria}</strong>
+              </p>
+            </div>
+            
+            <div class="p-4 rounded-lg mb-6" style="background-color: #fef3c7; border: 2px solid #f59e0b;">
+              <p data-text style="font-size: ${(config.font_size || defaultConfig.font_size) * 0.9}px; margin-bottom: 8px; color: #92400e;">
+                ⚠️ <strong>IMPORTANTE - Aguardando Confirmação de Pagamento</strong>
+              </p>
+              <p data-text style="font-size: ${(config.font_size || defaultConfig.font_size) * 0.85}px; color: #92400e;">
+                Plano: <strong>${planoSelecionado.toUpperCase()}</strong> | Valor: <strong>R$ ${valorPago.toFixed(2)}</strong>
+              </p>
+              <p data-text style="font-size: ${(config.font_size || defaultConfig.font_size) * 0.85}px; margin-top: 8px; color: #92400e;">
+                Seu acesso será <strong>liberado automaticamente</strong> assim que confirmarmos o pagamento na planilha de alunos.
+              </p>
+            </div>
+            
+            <div class="p-4 rounded-lg mb-6" style="background-color: ${config.background_color || defaultConfig.background_color};">
+              <p data-text style="font-size: ${(config.font_size || defaultConfig.font_size) * 0.85}px; margin-bottom: 8px;">
+                🔐 <strong>Anote sua senha provisória!</strong>
+              </p>
+              <p data-text style="font-size: ${(config.font_size || defaultConfig.font_size) * 0.8}px;">
+                Após a confirmação do pagamento, use seu e-mail e esta senha para acessar o curso.
+              </p>
+            </div>
+            
+            <button onclick="closeAllModals()" data-primary-btn class="px-6 py-3 rounded-lg text-white font-semibold" style="background-color: ${config.primary_action || defaultConfig.primary_action};">
+              Entendi
+            </button>
+          </div>
+        `;
+        showModal(successContent);
+      } else {
+        showToast('❌ Erro ao realizar matrícula', 'error');
+      }
+      
+      isLoading = false;
+    }
+
+    function acessarCurso() {
+      const config = window.elementSdk.config;
+      const modalContent = `
+        <div class="p-8" style="width: 500px; max-width: 90vw;">
+          <h2 data-heading style="font-size: ${(config.font_size || defaultConfig.font_size) * 1.5}px; font-weight: bold; margin-bottom: 16px;">🎓 Acessar Meu Curso</h2>
+          <p data-text style="font-size: ${config.font_size || defaultConfig.font_size}px; margin-bottom: 24px;">Entre com seu e-mail e senha</p>
+          
+          <form id="acessoCursoForm" onsubmit="handleAcessoCurso(event)">
+            <div class="mb-4">
+              <label data-text style="font-size: ${config.font_size || defaultConfig.font_size}px; display: block; margin-bottom: 8px; font-weight: 600;">E-mail</label>
+              <input type="email" id="emailAcesso" name="email" required class="w-full px-4 py-3 rounded-lg border-2" style="font-size: ${config.font_size || defaultConfig.font_size}px;" placeholder="seu@email.com">
+            </div>
+            
+            <div class="mb-6">
+              <label data-text style="font-size: ${config.font_size || defaultConfig.font_size}px; display: block; margin-bottom: 8px; font-weight: 600;">Senha de Acesso</label>
+              <input type="password" id="senhaAcesso" name="senha" required class="w-full px-4 py-3 rounded-lg border-2" style="font-size: ${config.font_size || defaultConfig.font_size}px;" placeholder="Digite sua senha">
+            </div>
+            
+            <div class="flex gap-3">
+              <button type="button" onclick="closeAllModals()" data-secondary-btn class="flex-1 py-3 rounded-lg text-white font-semibold" style="background-color: ${config.secondary_action || defaultConfig.secondary_action};">
+                Cancelar
+              </button>
+              <button type="submit" data-primary-btn class="flex-1 py-3 rounded-lg text-white font-semibold" style="background-color: ${config.primary_action || defaultConfig.primary_action};">
+                Entrar
+              </button>
+            </div>
+          </form>
+        </div>
+      `;
+      
+      showModal(modalContent);
+      setTimeout(() => document.getElementById('emailAcesso')?.focus(), 100);
+    }
+
+    function handleAcessoCurso(event) {
+      event.preventDefault();
+      const formData = new FormData(event.target);
+      const email = formData.get('email');
+      const senha = formData.get('senha');
+      
+      const aluno = allRecords.find(r => r.tipo === 'aluno' && r.email === email);
+      
+      if (!aluno) {
+        showToast('❌ E-mail não encontrado', 'error');
+        return;
+      }
+      
+      if (senha !== aluno.senhaAcesso) {
+        showToast('❌ Senha incorreta', 'error');
+        return;
+      }
+      
+      if (aluno.acessoBloqueado) {
+        showToast('❌ Acesso bloqueado', 'error');
+        return;
+      }
+      
+      const curso = getCursoData(aluno.cursoId);
+      if (curso && curso.linkCurso) {
+        window.open(curso.linkCurso, '_blank', 'noopener,noreferrer');
+        showToast('✅ Abrindo curso...');
+        closeAllModals();
+      } else {
+        showToast('❌ Link do curso não disponível', 'error');
+      }
+    }
+
+    function editarContato() {
+      const config = window.elementSdk.config;
+      
+      const modalContent = `
+        <div class="p-8" style="width: 600px; max-width: 90vw;">
+          <h2 data-heading style="font-size: ${(config.font_size || defaultConfig.font_size) * 1.5}px; font-weight: bold; margin-bottom: 16px;">📞 Editar Informações de Contato</h2>
+          <p data-text style="font-size: ${config.font_size || defaultConfig.font_size}px; margin-bottom: 24px;">Atualize o telefone e e-mail que aparecem na página inicial</p>
+          
+          <form id="editContatoForm" onsubmit="handleEditContato(event)">
+            <div class="mb-4">
+              <label data-text style="font-size: ${config.font_size || defaultConfig.font_size}px; display: block; margin-bottom: 8px; font-weight: 600;">Telefone de Contato</label>
+              <input type="tel" name="telefone" value="${config.contact_phone || defaultConfig.contact_phone}" required class="w-full px-4 py-3 rounded-lg border-2" style="font-size: ${config.font_size || defaultConfig.font_size}px;" placeholder="(11) 9999-9999">
+            </div>
+            
+            <div class="mb-4">
+              <label data-text style="font-size: ${config.font_size || defaultConfig.font_size}px; display: block; margin-bottom: 8px; font-weight: 600;">E-mail de Contato</label>
+              <input type="email" name="email" value="${config.contact_email || defaultConfig.contact_email}" required class="w-full px-4 py-3 rounded-lg border-2" style="font-size: ${config.font_size || defaultConfig.font_size}px;" placeholder="contato@exemplo.com">
+            </div>
+            
+            <div class="mb-6">
+              <label data-text style="font-size: ${config.font_size || defaultConfig.font_size}px; display: block; margin-bottom: 8px; font-weight: 600;">Chave PIX Padrão</label>
+              <input type="text" name="chavePix" value="${config.chave_pix || defaultConfig.chave_pix}" required class="w-full px-4 py-3 rounded-lg border-2" style="font-size: ${config.font_size || defaultConfig.font_size}px;" placeholder="seuemail@pix.com">
+            </div>
+            
+            <div class="flex gap-3">
+              <button type="button" onclick="closeAllModals()" data-secondary-btn class="flex-1 py-3 rounded-lg text-white font-semibold" style="background-color: ${config.secondary_action || defaultConfig.secondary_action};">
+                Cancelar
+              </button>
+              <button type="submit" data-primary-btn class="flex-1 py-3 rounded-lg text-white font-semibold" style="background-color: ${config.primary_action || defaultConfig.primary_action};">
+                Salvar Alterações
+              </button>
+            </div>
+          </form>
+        </div>
+      `;
+      
+      showModal(modalContent);
+    }
+
+    async function handleEditContato(event) {
+      event.preventDefault();
+      
+      const formData = new FormData(event.target);
+      
+      await window.elementSdk.setConfig({
+        contact_phone: formData.get('telefone'),
+        contact_email: formData.get('email'),
+        chave_pix: formData.get('chavePix')
+      });
+      
+      showToast('✅ Informações de contato atualizadas!');
+      closeAllModals();
+    }
+
+    function viewLeadsDemo() {
+      const config = window.elementSdk.config;
+      const leads = allRecords.filter(r => r.tipo === 'lead_demo');
+      
+      const modalContent = `
+        <div class="p-8" style="width: 95vw; max-width: 1600px; max-height: 90vh; overflow-y: auto;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
+            <h2 data-heading style="font-size: ${(config.font_size || defaultConfig.font_size) * 2}px; font-weight: bold;">🎁 Leads de Cursos Demo</h2>
+            <button onclick="closeAllModals()" style="font-size: 40px; background: none; border: none; cursor: pointer;">×</button>
+          </div>
+          
+          ${leads.length === 0 ? `
+            <div class="text-center py-16">
+              <p data-text style="font-size: ${config.font_size || defaultConfig.font_size}px;">Nenhum lead cadastrado ainda</p>
+            </div>
+          ` : `
+            <div style="overflow-x: auto;">
+              <table class="planilha-table">
+                <thead>
+                  <tr>
+                    <th>Nome</th>
+                    <th>E-mail</th>
+                    <th>Telefone</th>
+                    <th>Curso Demo</th>
+                    <th>Nível</th>
+                    <th>Data Cadastro</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${leads.map(lead => `
+                    <tr>
+                      <td>${lead.nome}</td>
+                      <td>${lead.email}</td>
+                      <td>${lead.telefone}</td>
+                      <td>${lead.cursoTitulo}</td>
+                      <td>${lead.nivelEducacao}</td>
+                      <td>${lead.dataCadastro ? new Date(lead.dataCadastro).toLocaleString('pt-BR') : '-'}</td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </div>
+          `}
+        </div>
+      `;
+      
+      showModal(modalContent);
+    }
+
+    function viewPlanilhaAlunos() {
+      const config = window.elementSdk.config;
+      const alunos = allRecords.filter(r => r.tipo === 'aluno');
+      
+      const modalContent = `
+        <div class="p-8" style="width: 95vw; max-width: 1600px; max-height: 90vh; overflow-y: auto;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
+            <h2 data-heading style="font-size: ${(config.font_size || defaultConfig.font_size) * 2}px; font-weight: bold;">📋 Planilha de Alunos</h2>
+            <button onclick="closeAllModals()" style="font-size: 40px; background: none; border: none; cursor: pointer;">×</button>
+          </div>
+          
+          ${alunos.length === 0 ? `
+            <div class="text-center py-16">
+              <p data-text style="font-size: ${config.font_size || defaultConfig.font_size}px;">Nenhum aluno cadastrado ainda</p>
+            </div>
+          ` : `
+            <div style="overflow-x: auto;">
+              <table class="planilha-table">
+                <thead>
+                  <tr>
+                    <th>Nome</th>
+                    <th>E-mail</th>
+                    <th>Telefone</th>
+                    <th>Senha</th>
+                    <th>Plano</th>
+                    <th>Valor</th>
+                    <th>Matrícula</th>
+                    <th>Data Final</th>
+                    <th>Pagamento</th>
+                    <th>Status</th>
+                    <th>Ações</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${alunos.map(aluno => {
+                    const dataFinal = aluno.dataFinalCurso ? new Date(aluno.dataFinalCurso).toISOString().split('T')[0] : '';
+                    return `
+                      <tr>
+                        <td><input type="text" value="${aluno.nome}" onchange="updateAlunoField('${aluno.__backendId}', 'nome', this.value)" /></td>
+                        <td><input type="email" value="${aluno.email}" onchange="updateAlunoField('${aluno.__backendId}', 'email', this.value)" /></td>
+                        <td><input type="tel" value="${aluno.telefone}" onchange="updateAlunoField('${aluno.__backendId}', 'telefone', this.value)" /></td>
+                        <td><input type="text" value="${aluno.senhaAcesso}" onchange="updateAlunoField('${aluno.__backendId}', 'senhaAcesso', this.value)" /></td>
+                        <td style="text-transform: uppercase;">${aluno.plano || '-'}</td>
+                        <td>R$ ${aluno.valorPago || '0.00'}</td>
+                        <td>${aluno.dataCadastro ? new Date(aluno.dataCadastro).toLocaleDateString('pt-BR') : '-'}</td>
+                        <td><input type="date" value="${dataFinal}" onchange="updateAlunoField('${aluno.__backendId}', 'dataFinalCurso', this.value)" /></td>
+                        <td>
+                          ${aluno.pagamentoVerificado ? 
+                            '<span class="status-badge status-ativo">✅ PAGO</span>' : 
+                            '<span class="status-badge status-bloqueado">⏳ PENDENTE</span>'
+                          }
+                        </td>
+                        <td>
+                          ${aluno.acessoBloqueado ? 
+                            '<span class="status-badge status-bloqueado">🚫 BLOQUEADO</span>' : 
+                            '<span class="status-badge status-ativo">✅ ATIVO</span>'
+                          }
+                        </td>
+                        <td>
+                          <div style="display: flex; gap: 8px; flex-direction: column;">
+                            ${!aluno.pagamentoVerificado ? `
+                              <button onclick="confirmarPagamento('${aluno.__backendId}')" class="px-4 py-2 rounded-lg text-white font-bold" style="background-color: #10b981;">
+                                ✅ Confirmar Pagamento
+                              </button>
+                            ` : ''}
+                            <button onclick="toggleBloquearAluno('${aluno.__backendId}')" class="px-4 py-2 rounded-lg text-white font-bold" style="background-color: ${aluno.acessoBloqueado ? '#10b981' : '#dc2626'};">
+                              ${aluno.acessoBloqueado ? '🔓 Liberar Acesso' : '🚫 Bloquear Acesso'}
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    `;
+                  }).join('')}
+                </tbody>
+              </table>
+            </div>
+          `}
+        </div>
+      `;
+      
+      showModal(modalContent);
+    }
+
+    async function updateAlunoField(backendId, field, value) {
+      if (isLoading) return;
+      isLoading = true;
+      
+      const aluno = allRecords.find(r => r.__backendId === backendId);
+      if (aluno) {
+        if (field === 'dataFinalCurso') {
+          aluno[field] = value ? new Date(value).toISOString() : '';
+        } else {
+          aluno[field] = value;
+        }
+        aluno.dataAtualizacao = new Date().toISOString();
+        
+        const result = await window.dataSdk.update(aluno);
+        if (result.isOk) {
+          showToast('✅ Atualizado!');
+        } else {
+          showToast('❌ Erro ao atualizar', 'error');
+        }
+      }
+      
+      isLoading = false;
+    }
+
+    async function confirmarPagamento(backendId) {
+      if (isLoading) return;
+      isLoading = true;
+      
+      const aluno = allRecords.find(r => r.__backendId === backendId);
+      if (aluno) {
+        aluno.pagamentoVerificado = true;
+        aluno.acessoBloqueado = false;
+        aluno.dataAtualizacao = new Date().toISOString();
+        
+        const result = await window.dataSdk.update(aluno);
+        if (result.isOk) {
+          // Enviar email automático de boas-vindas
+          await enviarEmailBoasVindas(aluno);
+          showToast('✅ Pagamento confirmado! Acesso liberado e e-mail enviado automaticamente');
+        } else {
+          showToast('❌ Erro ao confirmar pagamento', 'error');
+        }
+      }
+      
+      isLoading = false;
+    }
+
+    async function enviarEmailBoasVindas(aluno) {
+      const config = window.elementSdk.config;
+      const curso = getCursoData(aluno.cursoId);
+      const cursoNome = curso ? curso.titulo : 'Seu Curso';
+      
+      const assunto = `Bem-vindo(a) ao ${config.site_title || defaultConfig.site_title} - Acesso Liberado!`;
+      
+      const corpo = `
+Olá ${aluno.nome}!
+
+🎉 PARABÉNS! Seu pagamento foi confirmado e seu acesso ao curso foi liberado!
+
+📚 DADOS DE ACESSO:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+✅ Curso: ${cursoNome}
+📧 E-mail de acesso: ${aluno.email}
+🔑 Senha provisória: ${aluno.senhaAcesso}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🔐 IMPORTANTE - GUARDE ESTES DADOS:
+→ Use este e-mail e senha para acessar seu curso
+→ Caso esqueça sua senha, a senha de acesso será SEMPRE esta senha provisória
+→ Anote sua senha em um local seguro!
+
+🎓 COMO ACESSAR SEU CURSO:
+1. Acesse o site da plataforma
+2. Clique em "Acessar Meu Curso"
+3. Digite seu e-mail: ${aluno.email}
+4. Digite sua senha provisória: ${aluno.senhaAcesso}
+5. Pronto! Você será direcionado para o conteúdo do curso
+
+📞 CONTATO E SUPORTE:
+Telefone: ${config.contact_phone || defaultConfig.contact_phone}
+E-mail: ${config.contact_email || defaultConfig.contact_email}
+
+Seja muito bem-vindo(a) e aproveite seus estudos! 📖✨
+
+Atenciosamente,
+Equipe ${config.site_title || defaultConfig.site_title}
+      `.trim();
+      
+      const mailtoLink = `mailto:${aluno.email}?subject=${encodeURIComponent(assunto)}&body=${encodeURIComponent(corpo)}&from=assessoriaprojetos242@gmail.com`;
+      
+      // Criar uma notificação visual para o administrador
+      mostrarNotificacaoEmail(aluno, assunto, corpo);
+      
+      // Tentar abrir o cliente de e-mail padrão
+      try {
+        const link = document.createElement('a');
+        link.href = mailtoLink;
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      } catch (error) {
+        console.log('Erro ao abrir cliente de e-mail');
+      }
+    }
+
+    function mostrarNotificacaoEmail(aluno, assunto, corpo) {
+      const config = window.elementSdk.config;
+      
+      const modalContent = `
+        <div class="p-8" style="width: 800px; max-width: 90vw; max-height: 90vh; overflow-y: auto;">
+          <div style="text-align: center; margin-bottom: 24px;">
+            <div style="font-size: 64px; margin-bottom: 16px;">📧</div>
+            <h2 data-heading style="font-size: ${(config.font_size || defaultConfig.font_size) * 1.5}px; font-weight: bold; margin-bottom: 8px;">E-mail de Boas-Vindas</h2>
+            <p data-text style="font-size: ${config.font_size || defaultConfig.font_size}px;">Seu cliente de e-mail foi aberto para enviar automaticamente</p>
+          </div>
+          
+          <div class="p-4 rounded-lg mb-6" style="background-color: ${config.background_color || defaultConfig.background_color}; border: 2px solid ${config.primary_action || defaultConfig.primary_action};">
+            <p data-text style="font-size: ${(config.font_size || defaultConfig.font_size) * 0.9}px; margin-bottom: 8px;">
+              <strong>📤 De:</strong> assessoriaprojetos242@gmail.com
+            </p>
+            <p data-text style="font-size: ${(config.font_size || defaultConfig.font_size) * 0.9}px; margin-bottom: 8px;">
+              <strong>📥 Para:</strong> ${aluno.email}
+            </p>
+            <p data-text style="font-size: ${(config.font_size || defaultConfig.font_size) * 0.9}px; margin-bottom: 8px;">
+              <strong>✉️ Assunto:</strong> ${assunto}
+            </p>
+          </div>
+          
+          <div class="p-6 rounded-lg mb-6" style="background-color: #f9fafb; border: 1px solid #d1d5db; max-height: 400px; overflow-y: auto;">
+            <pre data-text style="font-size: ${(config.font_size || defaultConfig.font_size) * 0.85}px; white-space: pre-wrap; word-wrap: break-word; font-family: inherit; margin: 0;">${corpo}</pre>
+          </div>
+          
+          <div class="p-4 rounded-lg mb-6" style="background-color: #fef3c7; border: 2px solid #f59e0b;">
+            <p data-text style="font-size: ${(config.font_size || defaultConfig.font_size) * 0.85}px; color: #92400e; margin-bottom: 8px;">
+              ℹ️ <strong>ATENÇÃO:</strong>
+            </p>
+            <p data-text style="font-size: ${(config.font_size || defaultConfig.font_size) * 0.8}px; color: #92400e;">
+              Se o cliente de e-mail não abrir automaticamente, copie o conteúdo acima e envie manualmente de <strong>assessoriaprojetos242@gmail.com</strong> para <strong>${aluno.email}</strong>
+            </p>
+          </div>
+          
+          <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+            <button onclick="abrirEmailCliente('${aluno.email.replace(/'/g, "\\'")}', \`${assunto.replace(/`/g, '\\`')}\`, \`${corpo.replace(/`/g, '\\`')}\`)" class="flex-1 py-3 rounded-lg text-white font-semibold" style="background-color: #10b981; min-width: 200px;">
+              📧 Enviar E-mail
+            </button>
+            <button onclick="copiarEmailParaClipboard(\`${corpo.replace(/`/g, '\\`')}\`)" class="flex-1 py-3 rounded-lg text-white font-semibold" style="background-color: #3b82f6; min-width: 200px;">
+              📋 Copiar Conteúdo
+            </button>
+            <button onclick="closeAllModals()" data-primary-btn class="flex-1 py-3 rounded-lg text-white font-semibold" style="background-color: ${config.primary_action || defaultConfig.primary_action}; min-width: 200px;">
+              Fechar
+            </button>
+          </div>
+        </div>
+      `;
+      
+      showModal(modalContent);
+    }
+
+    function abrirEmailCliente(destinatario, assunto, corpo) {
+      const mailtoLink = `mailto:${destinatario}?subject=${encodeURIComponent(assunto)}&body=${encodeURIComponent(corpo)}`;
+      
+      window.open(mailtoLink, '_blank', 'noopener,noreferrer');
+      showToast('📧 Abrindo gerenciador de e-mail...');
+    }
+
+    function copiarEmailParaClipboard(texto) {
+      const textarea = document.createElement('textarea');
+      textarea.value = texto;
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.select();
+      
+      try {
+        document.execCommand('copy');
+        showToast('✅ Conteúdo do e-mail copiado!');
+      } catch (err) {
+        showToast('❌ Erro ao copiar', 'error');
+      }
+      
+      document.body.removeChild(textarea);
+    }
+
+    async function toggleBloquearAluno(backendId) {
+      if (isLoading) return;
+      isLoading = true;
+      
+      const aluno = allRecords.find(r => r.__backendId === backendId);
+      if (aluno) {
+        aluno.acessoBloqueado = !aluno.acessoBloqueado;
+        aluno.dataAtualizacao = new Date().toISOString();
+        
+        const result = await window.dataSdk.update(aluno);
+        if (result.isOk) {
+          showToast(aluno.acessoBloqueado ? '🚫 Acesso bloqueado' : '✅ Acesso liberado');
+        } else {
+          showToast('❌ Erro', 'error');
+        }
+      }
+      
+      isLoading = false;
+    }
+
+    function criarCursosDemo() {
+      const config = window.elementSdk.config;
+      
+      const modalContent = `
+        <div class="p-8" style="width: 800px; max-width: 90vw; max-height: 90vh; overflow-y: auto;">
+          <h2 data-heading style="font-size: ${(config.font_size || defaultConfig.font_size) * 1.5}px; font-weight: bold; margin-bottom: 16px;">🎨 Criar Cursos Demo</h2>
+          <p data-text style="font-size: ${config.font_size || defaultConfig.font_size}px; margin-bottom: 24px;">Configure os links para as aulas demonstrativas de cada nível</p>
+          
+          <form id="cursosDemo" onsubmit="handleCriarCursosDemo(event)">
+            <div class="mb-6 p-4 rounded-lg" style="background-color: ${config.background_color || defaultConfig.background_color};">
+              <h3 data-heading style="font-size: ${(config.font_size || defaultConfig.font_size) * 1.2}px; font-weight: bold; margin-bottom: 12px;">🎨 Educação Infantil</h3>
+              <label data-text style="font-size: ${(config.font_size || defaultConfig.font_size) * 0.9}px; display: block; margin-bottom: 8px; font-weight: 600;">Link da Aula Demo</label>
+              <input type="url" name="link_infantil" required class="w-full px-4 py-3 rounded-lg border-2" style="font-size: ${config.font_size || defaultConfig.font_size}px;" placeholder="https://exemplo.com/demo-infantil">
+            </div>
+            
+            <div class="mb-6 p-4 rounded-lg" style="background-color: ${config.background_color || defaultConfig.background_color};">
+              <h3 data-heading style="font-size: ${(config.font_size || defaultConfig.font_size) * 1.2}px; font-weight: bold; margin-bottom: 12px;">📚 Fundamental I</h3>
+              <label data-text style="font-size: ${(config.font_size || defaultConfig.font_size) * 0.9}px; display: block; margin-bottom: 8px; font-weight: 600;">Link da Aula Demo</label>
+              <input type="url" name="link_fundamental1" required class="w-full px-4 py-3 rounded-lg border-2" style="font-size: ${config.font_size || defaultConfig.font_size}px;" placeholder="https://exemplo.com/demo-fundamental1">
+            </div>
+            
+            <div class="mb-6 p-4 rounded-lg" style="background-color: ${config.background_color || defaultConfig.background_color};">
+              <h3 data-heading style="font-size: ${(config.font_size || defaultConfig.font_size) * 1.2}px; font-weight: bold; margin-bottom: 12px;">📖 Fundamental II</h3>
+              <label data-text style="font-size: ${(config.font_size || defaultConfig.font_size) * 0.9}px; display: block; margin-bottom: 8px; font-weight: 600;">Link da Aula Demo</label>
+              <input type="url" name="link_fundamental2" required class="w-full px-4 py-3 rounded-lg border-2" style="font-size: ${config.font_size || defaultConfig.font_size}px;" placeholder="https://exemplo.com/demo-fundamental2">
+            </div>
+            
+            <div class="mb-6 p-4 rounded-lg" style="background-color: ${config.background_color || defaultConfig.background_color};">
+              <h3 data-heading style="font-size: ${(config.font_size || defaultConfig.font_size) * 1.2}px; font-weight: bold; margin-bottom: 12px;">🎓 Ensino Médio</h3>
+              <label data-text style="font-size: ${(config.font_size || defaultConfig.font_size) * 0.9}px; display: block; margin-bottom: 8px; font-weight: 600;">Link da Aula Demo</label>
+              <input type="url" name="link_medio" required class="w-full px-4 py-3 rounded-lg border-2" style="font-size: ${config.font_size || defaultConfig.font_size}px;" placeholder="https://exemplo.com/demo-medio">
+            </div>
+            
+            <div class="flex gap-3">
+              <button type="button" onclick="closeAllModals()" data-secondary-btn class="flex-1 py-3 rounded-lg text-white font-semibold" style="background-color: ${config.secondary_action || defaultConfig.secondary_action};">
+                Cancelar
+              </button>
+              <button type="submit" data-primary-btn class="flex-1 py-3 rounded-lg text-white font-semibold" style="background-color: ${config.primary_action || defaultConfig.primary_action};">
+                Criar Cursos Demo
+              </button>
+            </div>
+          </form>
+        </div>
+      `;
+      
+      showModal(modalContent);
+    }
+
+    async function handleCriarCursosDemo(event) {
+      event.preventDefault();
+      
+      if (isLoading) return;
+      isLoading = true;
+      
+      const formData = new FormData(event.target);
+      
+      const cursosDemo = [
+        {
+          cursoId: 'demo_infantil',
+          nivelEducacao: 'infantil',
+          serie: 'Infantil',
+          titulo: '🎨 Curso Demo - Educação Infantil',
+          descricao: 'Aula demonstrativa gratuita - Apenas cadastre-se para ter acesso',
+          linkCurso: formData.get('link_infantil')
+        },
+        {
+          cursoId: 'demo_fund1',
+          nivelEducacao: 'fundamental1',
+          serie: '1º ano',
+          titulo: '📚 Curso Demo - Fundamental I',
+          descricao: 'Aula demonstrativa gratuita - Apenas cadastre-se para ter acesso',
+          linkCurso: formData.get('link_fundamental1')
+        },
+        {
+          cursoId: 'demo_fund2',
+          nivelEducacao: 'fundamental2',
+          serie: '6º ano',
+          titulo: '📖 Curso Demo - Fundamental II',
+          descricao: 'Aula demonstrativa gratuita - Apenas cadastre-se para ter acesso',
+          linkCurso: formData.get('link_fundamental2')
+        },
+        {
+          cursoId: 'demo_medio',
+          nivelEducacao: 'medio',
+          serie: '1º ano',
+          titulo: '🎓 Curso Demo - Ensino Médio',
+          descricao: 'Aula demonstrativa gratuita - Apenas cadastre-se para ter acesso',
+          linkCurso: formData.get('link_medio')
+        }
+      ];
+
+      let criados = 0;
+      for (const demo of cursosDemo) {
+        if (!allRecords.some(r => r.tipo === 'curso' && r.cursoId === demo.cursoId)) {
+          const result = await window.dataSdk.create({
+            tipo: 'curso',
+            cursoId: demo.cursoId,
+            nivelEducacao: demo.nivelEducacao,
+            serie: demo.serie,
+            titulo: demo.titulo,
+            descricao: demo.descricao,
+            valorMensal: '0',
+            valorBimestral: '0',
+            valorSemestral: '0',
+            valorAnual: '0',
+            chavePix: '',
+            linkCurso: demo.linkCurso,
+            dataCadastro: new Date().toISOString(),
+            dataAtualizacao: new Date().toISOString(),
+            nome: '',
+            email: '',
+            telefone: '',
+            codigoPix: '',
+            senhaAcesso: '',
+            pagamentoVerificado: false,
+            plano: '',
+            valorPago: '',
+            dataFinalCurso: '',
+            acessoBloqueado: false
+          });
+          
+          if (result.isOk) criados++;
+        }
+      }
+
+      if (criados > 0) {
+        showToast(`✅ ${criados} curso(s) demo criado(s)!`);
+        closeAllModals();
+      } else {
+        showToast('ℹ️ Todos os cursos demo já existem');
+      }
+
+      isLoading = false;
+    }
+
+    function acessarCursoDemo(cursoId) {
+      const config = window.elementSdk.config;
+      const curso = getCursoData(cursoId);
+      
+      const modalContent = `
+        <div class="p-8" style="width: 600px; max-width: 90vw;">
+          <h2 data-heading style="font-size: ${(config.font_size || defaultConfig.font_size) * 1.5}px; font-weight: bold; margin-bottom: 16px;">🎁 Acesso Gratuito - ${curso.titulo}</h2>
+          <p data-text style="font-size: ${config.font_size || defaultConfig.font_size}px; margin-bottom: 24px;">Preencha seus dados para acessar a aula demonstrativa gratuita</p>
+          
+          <form id="demoForm" onsubmit="handleAcessoDemo(event, '${cursoId}')">
+            <div class="mb-4">
+              <label data-text style="font-size: ${config.font_size || defaultConfig.font_size}px; display: block; margin-bottom: 8px; font-weight: 600;">Nome Completo</label>
+              <input type="text" name="nome" required class="w-full px-4 py-3 rounded-lg border-2" style="font-size: ${config.font_size || defaultConfig.font_size}px;">
+            </div>
+            
+            <div class="mb-4">
+              <label data-text style="font-size: ${config.font_size || defaultConfig.font_size}px; display: block; margin-bottom: 8px; font-weight: 600;">E-mail</label>
+              <input type="email" name="email" required class="w-full px-4 py-3 rounded-lg border-2" style="font-size: ${config.font_size || defaultConfig.font_size}px;">
+            </div>
+            
+            <div class="mb-6">
+              <label data-text style="font-size: ${config.font_size || defaultConfig.font_size}px; display: block; margin-bottom: 8px; font-weight: 600;">Telefone</label>
+              <input type="tel" name="telefone" required class="w-full px-4 py-3 rounded-lg border-2" style="font-size: ${config.font_size || defaultConfig.font_size}px;">
+            </div>
+            
+            <div class="flex gap-3">
+              <button type="button" onclick="closeAllModals()" data-secondary-btn class="flex-1 py-3 rounded-lg text-white font-semibold" style="background-color: ${config.secondary_action || defaultConfig.secondary_action};">
+                Cancelar
+              </button>
+              <button type="submit" data-primary-btn class="flex-1 py-3 rounded-lg text-white font-semibold" style="background-color: ${config.primary_action || defaultConfig.primary_action};">
+                Acessar Demo Grátis
+              </button>
+            </div>
+          </form>
+        </div>
+      `;
+      
+      showModal(modalContent);
+    }
+
+    async function handleAcessoDemo(event, cursoId) {
+      event.preventDefault();
+      
+      if (isLoading) return;
+      isLoading = true;
+      
+      const formData = new FormData(event.target);
+      const curso = getCursoData(cursoId);
+      
+      const result = await window.dataSdk.create({
+        tipo: 'lead_demo',
+        nome: formData.get('nome'),
+        email: formData.get('email'),
+        telefone: formData.get('telefone'),
+        cursoId: cursoId,
+        cursoTitulo: curso.titulo,
+        nivelEducacao: curso.nivelEducacao,
+        dataCadastro: new Date().toISOString(),
+        serie: '',
+        codigoPix: '',
+        senhaAcesso: '',
+        pagamentoVerificado: false,
+        plano: '',
+        valorPago: '',
+        dataFinalCurso: '',
+        acessoBloqueado: false,
+        dataAtualizacao: '',
+        linkCurso: '',
+        chavePix: '',
+        valorMensal: '',
+        valorBimestral: '',
+        valorSemestral: '',
+        valorAnual: '',
+        titulo: '',
+        descricao: ''
+      });
+      
+      if (result.isOk) {
+        closeAllModals();
+        
+        if (curso.linkCurso) {
+          window.open(curso.linkCurso, '_blank', 'noopener,noreferrer');
+          showToast('✅ Abrindo aula demo gratuita!');
+        } else {
+          showToast('✅ Cadastro realizado com sucesso!');
+        }
+      } else {
+        showToast('❌ Erro ao processar cadastro', 'error');
+      }
+      
+      isLoading = false;
+    }
+
+    function closeAllModals() {
+      document.querySelectorAll('.modal-backdrop, .modal-content').forEach(el => el.remove());
+    }
+
+    function render() {
+      const app = document.getElementById('app');
+      if (currentView === 'home') {
+        app.innerHTML = renderHome();
+      } else {
+        app.innerHTML = renderNivel(currentView);
+      }
+    }
+
+    const dataHandler = {
+      onDataChanged(data) {
+        allRecords = data;
+        render();
+      }
+    };
+
+    let keySequence = [];
+    let keyTimer = null;
+    
+    document.addEventListener('keydown', (event) => {
+      if (event.ctrlKey && event.shiftKey && event.key === 'A') {
+        event.preventDefault();
+        toggleAdminMode();
+        return;
+      }
+      
+      if (event.key === 'g' || event.key === 'G') {
+        keySequence = ['g'];
+        clearTimeout(keyTimer);
+        keyTimer = setTimeout(() => {
+          keySequence = [];
+        }, 2000);
+      } else if (event.key === 'Escape' && keySequence.length === 1 && keySequence[0] === 'g') {
+        event.preventDefault();
+        keySequence = [];
+        clearTimeout(keyTimer);
+        toggleAdminMode();
+      }
+    });
+
+    (async function init() {
+      await window.elementSdk.init({
+        defaultConfig,
+        onConfigChange,
+        mapToCapabilities: () => ({
+          recolorables: [],
+          borderables: [],
+          fontEditable: undefined,
+          fontSizeable: undefined
+        }),
+        mapToEditPanelValues: (config) => new Map([
+          ['site_title', config.site_title || defaultConfig.site_title],
+          ['site_subtitle', config.site_subtitle || defaultConfig.site_subtitle],
+          ['contact_phone', config.contact_phone || defaultConfig.contact_phone],
+          ['contact_email', config.contact_email || defaultConfig.contact_email],
+          ['chave_pix', config.chave_pix || defaultConfig.chave_pix]
+        ])
+      });
+
+      await window.dataSdk.init(dataHandler);
+      
+      render();
+    })();
+  </script>
+ <script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'9be07ce535464293',t:'MTc2ODQyODg4My4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+</html>
